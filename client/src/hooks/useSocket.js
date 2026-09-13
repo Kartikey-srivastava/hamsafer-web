@@ -8,20 +8,26 @@ export function useSocket() {
 
   useEffect(() => {
     if (!socketRef.current) {
-      const defaultProdUrl = 'https://hamsafer-web.onrender.com';
+      const realRenderUrl = 'https://hamsafer-web.onrender.com';
       const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-      
-      // Determine target backend server URL
-      const targetUrl = import.meta.env.VITE_SERVER_URL || 
-        (typeof window !== 'undefined' ? localStorage.getItem('hamsafer_server_url') : null) || 
-        (isLocal ? 'http://localhost:3001' : defaultProdUrl);
 
-      console.log('[useSocket] Connecting to server at:', targetUrl);
+      // Check for environment variable and filter out literal template placeholders
+      let envUrl = import.meta.env.VITE_SERVER_URL;
+      if (envUrl && (envUrl.includes('your-render-backend-url') || envUrl.includes('placeholder'))) {
+        console.warn('[useSocket] Ignoring placeholder VITE_SERVER_URL:', envUrl);
+        envUrl = null;
+      }
+
+      const targetUrl = isLocal 
+        ? 'http://localhost:3001' 
+        : (envUrl || realRenderUrl);
+
+      console.log('[useSocket] Connecting to signaling server at:', targetUrl);
 
       const s = io(targetUrl, {
         transports: ['websocket', 'polling'],
         reconnection: true,
-        reconnectionAttempts: 30,
+        reconnectionAttempts: 40,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
         timeout: 25000
