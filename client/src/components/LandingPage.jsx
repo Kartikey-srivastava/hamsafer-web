@@ -3,7 +3,7 @@ import { Heart, Copy, ArrowRight, Users, Sparkles, Loader2, Check } from 'lucide
 import FloatingHearts from './FloatingHearts';
 import confetti from 'canvas-confetti';
 
-export default function LandingPage({ onCreateRoom, onJoinRoom, roomCode, error, isLoading }) {
+export default function LandingPage({ onCreateRoom, onJoinRoom, roomCode, error, isLoading, isSocketConnected }) {
   const [mode, setMode] = useState('create');
   const [name, setName] = useState('');
   const [inputRoomCode, setInputRoomCode] = useState('');
@@ -84,6 +84,19 @@ export default function LandingPage({ onCreateRoom, onJoinRoom, roomCode, error,
         </div>
 
         <div className="glass-strong p-8 rounded-3xl shadow-2xl animate-fadeIn">
+          {/* Server Connection Status Indicator */}
+          <div className="flex items-center justify-center mb-5">
+            {isSocketConnected ? (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-300 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20 shadow-sm">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]"></span> Server Online
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-300 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20 animate-pulse">
+                <Loader2 size={11} className="animate-spin text-amber-400" /> Connecting to server...
+              </span>
+            )}
+          </div>
+
           {createdRoomCode && mode === 'create' ? (
             <div className="text-center space-y-6">
               <div className="space-y-2">

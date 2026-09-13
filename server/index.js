@@ -7,6 +7,19 @@ import { customAlphabet } from 'nanoid';
 const app = express();
 app.use(cors());
 
+app.get('/', (req, res) => {
+  res.json({
+    status: 'online',
+    service: 'Hamsafer Web Signaling Server',
+    activeRooms: rooms.size,
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
+
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {

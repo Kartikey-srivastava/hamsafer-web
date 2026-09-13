@@ -11,39 +11,43 @@ function AppContent() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   
-  const socket = useSocket();
+  const { socket, isSocketConnected } = useSocket();
   const { showToast } = useToast();
 
   const handleCreateRoom = useCallback((name) => {
-    if (!socket || !socket.connected) {
-      setError('Not connected to server. Please wait and try again.');
-      showToast('Connecting to server...', 'warning');
-      return;
-    }
+    if (!socket) return;
     setError('');
     setIsLoading(true);
-    console.log('[App] Creating room for:', name);
-    
-    socket.emit('create-room', { name }, (response) => {
-      setIsLoading(false);
-      console.log('[App] create-room response:', response);
-      if (response && response.roomCode) {
-        setRoomCode(response.roomCode);
-        setUserName(name);
-        showToast('Room created! Share code with your love 💕', 'success');
-      } else {
-        setError('Failed to create room. Please try again.');
-        showToast('Failed to create room', 'error');
-      }
-    });
+
+    const executeCreate = () => {
+      console.log('[App] Creating room for:', name);
+      socket.emit('create-room', { name }, (response) => {
+        setIsLoading(false);
+        console.log('[App] create-room response:', response);
+        if (response && response.roomCode) {
+          setRoomCode(response.roomCode);
+          setUserName(name);
+          showToast('Room created! Share code with your love 💕', 'success');
+        } else {
+          setError('Failed to create room. Please try again.');
+          showToast('Failed to create room', 'error');
+        }
+      });
+    };
+
+    if (!socket.connected) {
+      showToast('Connecting to server, please wait a moment... 🌹', 'info');
+      socket.once('connect', () => {
+        executeCreate();
+      });
+      return;
+    }
+
+    executeCreate();
   }, [socket, showToast]);
 
   const handleJoinRoom = useCallback((code, name) => {
-    if (!socket || !socket.connected) {
-      setError('Not connected to server. Please wait and try again.');
-      showToast('Connecting to server...', 'warning');
-      return;
-    }
+    if (!socket) return;
     if (!code || !code.trim()) {
       setError('Please enter a room code.');
       showToast('Please enter a room code', 'warning');
@@ -58,22 +62,34 @@ function AppContent() {
     setError('');
     setIsLoading(true);
     const trimmedCode = code.trim().toUpperCase();
-    console.log('[App] Joining room:', trimmedCode, 'as:', name);
-    
-    socket.emit('join-room', { roomCode: trimmedCode, name: name.trim() }, (response) => {
-      setIsLoading(false);
-      console.log('[App] join-room response:', response);
-      if (response && response.success) {
-        setRoomCode(trimmedCode);
-        setUserName(name.trim());
-        setPage('room');
-        showToast(`Welcome to your private room, ${name.trim()}! 🌹`, 'success');
-      } else {
-        const errorMsg = response?.message || 'Failed to join room. Please try again.';
-        setError(errorMsg);
-        showToast(errorMsg, 'error');
-      }
-    });
+
+    const executeJoin = () => {
+      console.log('[App] Joining room:', trimmedCode, 'as:', name);
+      socket.emit('join-room', { roomCode: trimmedCode, name: name.trim() }, (response) => {
+        setIsLoading(false);
+        console.log('[App] join-room response:', response);
+        if (response && response.success) {
+          setRoomCode(trimmedCode);
+          setUserName(name.trim());
+          setPage('room');
+          showToast(`Welcome to your private room, ${name.trim()}! 🌹`, 'success');
+        } else {
+          const errorMsg = response?.message || 'Failed to join room. Please try again.';
+          setError(errorMsg);
+          showToast(errorMsg, 'error');
+        }
+      });
+    };
+
+    if (!socket.connected) {
+      showToast('Connecting to server, please wait a moment... 🌹', 'info');
+      socket.once('connect', () => {
+        executeJoin();
+      });
+      return;
+    }
+
+    executeJoin();
   }, [socket, showToast]);
 
   const handleLeaveRoom = useCallback(() => {
@@ -97,6 +113,7 @@ function AppContent() {
           roomCode={roomCode}
           error={error}
           isLoading={isLoading}
+          isSocketConnected={isSocketConnected}
         />
       )}
       {page === 'room' && (
