@@ -5,10 +5,16 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-  font-family: 'Inter', sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
   background: linear-gradient(135deg, #1a0a0e 0%, #2d1018 25%, #1a0a0e 50%, #0f0a1a 100%);
   min-height: 100vh;
   overflow-x: hidden;
+}
+
+.font-emoji {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  font-style: normal;
+  font-weight: 400;
 }
 
 .font-display { font-family: 'Playfair Display', serif; }

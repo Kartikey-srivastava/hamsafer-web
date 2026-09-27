@@ -68,7 +68,9 @@ function ReactionEmojis({ socket, roomCode, userName, onPlayReaction }) {
               filter: 'drop-shadow(0 4px 10px rgba(0,0,0,0.3))'
             }}
           >
-            {item.emoji}
+            <span className="font-normal inline-block font-emoji select-none">
+              {item.emoji}
+            </span>
           </div>
         ))}
       </div>
@@ -88,7 +90,9 @@ function ReactionEmojis({ socket, roomCode, userName, onPlayReaction }) {
                   onClick={() => sendReaction(emoji)}
                   className="w-10 h-10 flex items-center justify-center text-xl hover:scale-125 active:scale-95 transition-transform rounded-xl hover:bg-white/10"
                 >
-                  {emoji}
+                  <span className="font-normal inline-block font-emoji select-none">
+                    {emoji}
+                  </span>
                 </button>
               ))}
             </div>

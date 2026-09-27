@@ -1,9 +1,12 @@
 import React from 'react';
 import { Heart, MicOff, VideoOff, User } from 'lucide-react';
+import MediaVideo from './MediaVideo';
 
 export default function VideoChat({
   localVideoRef,
   remoteVideoRef,
+  localStream,
+  remoteStream,
   isConnected,
   remoteUserName,
   isCameraOff,
@@ -11,16 +14,18 @@ export default function VideoChat({
   isMuted,
   isRemoteMuted
 }) {
+  const activeLocalStream = localStream || localVideoRef?.current?.srcObject;
+  const activeRemoteStream = remoteStream || remoteVideoRef?.current?.srcObject;
+
   return (
     <div className="w-full h-full p-3 sm:p-4 pt-16 sm:pt-20 pb-28 sm:pb-32 flex flex-col md:grid md:grid-cols-2 gap-3 sm:gap-4">
       {/* Local Video Card */}
       <div className="relative flex-1 rounded-2xl sm:rounded-3xl overflow-hidden glass-strong shadow-2xl bg-black/60 border border-white/10 flex items-center justify-center">
-        <video 
-          ref={localVideoRef} 
-          autoPlay 
-          playsInline 
-          muted 
-          className={`w-full h-full object-cover transform scale-x-[-1] transition-opacity duration-300 ${isCameraOff ? 'opacity-0' : 'opacity-100'}`} 
+        <MediaVideo 
+          stream={activeLocalStream}
+          muted={true}
+          mirror={true}
+          className={`w-full h-full object-cover transition-opacity duration-300 ${isCameraOff ? 'opacity-0' : 'opacity-100'}`} 
         />
 
         {isCameraOff && (
@@ -58,10 +63,9 @@ export default function VideoChat({
           </div>
         ) : (
           <>
-            <video 
-              ref={remoteVideoRef} 
-              autoPlay 
-              playsInline 
+            <MediaVideo 
+              stream={activeRemoteStream}
+              muted={false}
               className={`w-full h-full object-cover transition-opacity duration-300 ${isRemoteCameraOff ? 'opacity-0' : 'opacity-100'}`} 
             />
 

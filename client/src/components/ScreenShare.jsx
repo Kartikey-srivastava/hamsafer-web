@@ -1,5 +1,6 @@
 import React from 'react';
 import { MonitorUp, MonitorX, Info, Sparkles, Tv } from 'lucide-react';
+import MediaVideo from './MediaVideo';
 
 export default function ScreenShare({
   isScreenSharing,
@@ -8,6 +9,9 @@ export default function ScreenShare({
   onStopShare,
   isConnected,
   remoteUserName,
+  screenStream,
+  remoteStream,
+  localStream,
   localVideoRef,
   remoteVideoRef
 }) {
@@ -15,6 +19,11 @@ export default function ScreenShare({
 
   // If someone is actively sharing screen, display the stage view!
   const hasActiveScreen = isScreenSharing || isPartnerScreenSharing;
+
+  // Active stream on the main stage:
+  const activeStageStream = isScreenSharing
+    ? (screenStream || (localVideoRef?.current?.srcObject) || localStream)
+    : (remoteStream || (remoteVideoRef?.current?.srcObject));
 
   return (
     <div className="w-full h-full pt-16 sm:pt-20 pb-28 sm:pb-32 px-3 sm:px-4 flex flex-col items-center justify-center">
@@ -42,22 +51,11 @@ export default function ScreenShare({
 
           {/* Main Stage Screen Display Container */}
           <div className="flex-1 rounded-2xl sm:rounded-3xl overflow-hidden glass-strong border border-white/15 bg-black flex items-center justify-center relative shadow-2xl">
-            {isScreenSharing ? (
-              <video
-                ref={localVideoRef}
-                autoPlay
-                playsInline
-                muted
-                className="w-full h-full object-contain"
-              />
-            ) : (
-              <video
-                ref={remoteVideoRef}
-                autoPlay
-                playsInline
-                className="w-full h-full object-contain"
-              />
-            )}
+            <MediaVideo
+              stream={activeStageStream}
+              muted={isScreenSharing} // Local screen muted to prevent echo; remote screen unmuted to play transmitted audio
+              className="w-full h-full object-contain"
+            />
           </div>
         </div>
       ) : (

@@ -6,6 +6,11 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['Inter', 'system-ui', '-apple-system', '"Segoe UI"', 'Roboto', '"Apple Color Emoji"', '"Segoe UI Emoji"', '"Noto Color Emoji"', 'sans-serif'],
+        emoji: ['system-ui', '-apple-system', '"Segoe UI"', 'Roboto', '"Apple Color Emoji"', '"Segoe UI Emoji"', '"Noto Color Emoji"', 'sans-serif'],
+        display: ['"Playfair Display"', 'serif'],
+      },
       colors: {
         rose: {
           50: '#fff1f2',

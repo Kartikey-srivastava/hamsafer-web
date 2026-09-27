@@ -12,6 +12,7 @@ import Chat from './Chat';
 import ReactionEmojis from './ReactionEmojis';
 import ImageShare from './ImageShare';
 import ConnectionIndicator from './ConnectionIndicator';
+import MediaVideo from './MediaVideo';
 import { Video, MonitorPlay, MonitorUp, Copy, Check, GripHorizontal } from 'lucide-react';
 
 export default function Room({ socket, roomCode, userName, onLeaveRoom }) {
@@ -35,6 +36,12 @@ export default function Room({ socket, roomCode, userName, onLeaveRoom }) {
   } = useSounds();
 
   const {
+    localStream,
+    remoteStream,
+    screenStreamRef,
+    localMediaStream,
+    remoteMediaStream,
+    screenMediaStream,
     isMuted,
     isCameraOff,
     isConnected,
@@ -50,6 +57,7 @@ export default function Room({ socket, roomCode, userName, onLeaveRoom }) {
     toggleCamera,
     startScreenShare,
     stopScreenShare,
+    setOnScreenShareEnded,
     attachStreams,
     cleanup
   } = useWebRTC({ socket, roomCode, localVideoRef, remoteVideoRef });
@@ -59,6 +67,28 @@ export default function Room({ socket, roomCode, userName, onLeaveRoom }) {
 
   // Draggable PiP
   const { dragRef, position: pipPos, isDragging, dragHandlers } = useDraggable();
+
+  // Dynamic layout reset when local screen share ends (via browser stop or button)
+  useEffect(() => {
+    setOnScreenShareEnded(() => {
+      console.log('[Room] Screen share ended, resetting layout to video-chat');
+      setActiveMode('video-chat');
+    });
+  }, [setOnScreenShareEnded]);
+
+  const handleStartScreenShare = useCallback(async () => {
+    const success = await startScreenShare(() => {
+      setActiveMode('video-chat');
+    });
+    if (success) {
+      setActiveMode('screen-share');
+    }
+  }, [startScreenShare]);
+
+  const handleStopScreenShare = useCallback(async () => {
+    await stopScreenShare();
+    setActiveMode('video-chat');
+  }, [stopScreenShare]);
 
   // Re-attach media streams whenever mode changes or partner connects
   useEffect(() => {
@@ -91,12 +121,16 @@ export default function Room({ socket, roomCode, userName, onLeaveRoom }) {
     };
   }, [socket, playJoin, playLeave, showToast]);
 
-  // Notify when partner starts screen sharing
+  // Viewer's view: Automatically switch Main Stage Area to render incoming Screen Share Stream
   useEffect(() => {
     if (isPartnerScreenSharing) {
+      setActiveMode('screen-share');
       showToast(`${remoteUserName || 'Partner'} started sharing screen! 🖥️`, 'info');
+    } else if (!isScreenSharing && activeMode === 'screen-share') {
+      // When screen sharing ends, automatically reset layout mode back to standard Video Call focus
+      setActiveMode('video-chat');
     }
-  }, [isPartnerScreenSharing, remoteUserName, showToast]);
+  }, [isPartnerScreenSharing, isScreenSharing, remoteUserName, showToast, activeMode]);
 
   // Track unread messages when chat is closed
   useEffect(() => {
@@ -162,6 +196,8 @@ export default function Room({ socket, roomCode, userName, onLeaveRoom }) {
           <VideoChat
             localVideoRef={activeMode === 'video-chat' ? localVideoRef : null}
             remoteVideoRef={activeMode === 'video-chat' ? remoteVideoRef : null}
+            localStream={localMediaStream}
+            remoteStream={remoteMediaStream}
             isConnected={isConnected}
             remoteUserName={remoteUserName}
             isCameraOff={isCameraOff}
@@ -179,12 +215,15 @@ export default function Room({ socket, roomCode, userName, onLeaveRoom }) {
           <ScreenShare
             isScreenSharing={isScreenSharing}
             isPartnerScreenSharing={isPartnerScreenSharing}
-            onStartShare={startScreenShare}
-            onStopShare={stopScreenShare}
+            onStartShare={handleStartScreenShare}
+            onStopShare={handleStopScreenShare}
             isConnected={isConnected}
             remoteUserName={remoteUserName}
-            localVideoRef={isScreenSharing ? localVideoRef : null}
-            remoteVideoRef={isPartnerScreenSharing ? remoteVideoRef : null}
+            screenStream={screenMediaStream}
+            remoteStream={remoteMediaStream}
+            localStream={localMediaStream}
+            localVideoRef={localVideoRef}
+            remoteVideoRef={remoteVideoRef}
           />
         </div>
 
@@ -201,43 +240,90 @@ export default function Room({ socket, roomCode, userName, onLeaveRoom }) {
               bottom: pipPos ? 'auto' : '110px',
               cursor: isDragging ? 'grabbing' : 'grab'
             }}
-            className={`z-40 glass-strong p-2 rounded-2xl shadow-2xl border border-white/20 flex flex-col gap-1.5 transition-shadow ${
+            className={`z-40 glass-strong p-2 rounded-2xl shadow-2xl border border-white/20 flex flex-col gap-1.5 transition-shadow select-none ${
               isDragging ? 'shadow-rose-500/20 scale-105 opacity-90' : ''
             }`}
           >
             <div className="flex items-center justify-between px-1 text-white/40 text-[10px]">
               <span className="flex items-center gap-1 font-medium text-rose-300/80">
-                <GripHorizontal size={12} /> Drag PiP
+                <GripHorizontal size={12} /> Video Dock
               </span>
+              {isPartnerScreenSharing && (
+                <span className="text-[9px] bg-rose-500/20 text-rose-300 px-1.5 py-0.5 rounded-full border border-rose-500/30">
+                  Screen Viewing
+                </span>
+              )}
+              {isScreenSharing && (
+                <span className="text-[9px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded-full border border-blue-500/30">
+                  Screen Sharing
+                </span>
+              )}
             </div>
 
             <div className="flex gap-2">
-              {/* Local Thumb */}
+              {/* Local User Camera Feed (Non-sharing user's camera pinned when viewing, or sharer's facecam) */}
               <div className="w-24 sm:w-28 h-32 sm:h-36 rounded-xl overflow-hidden glass shadow-inner bg-black/60 relative flex items-center justify-center">
-                <video
-                  ref={activeMode !== 'video-chat' && !isScreenSharing ? localVideoRef : null}
-                  autoPlay
-                  playsInline
-                  muted
-                  className={`w-full h-full object-cover transform scale-x-[-1] ${isCameraOff ? 'opacity-0' : 'opacity-100'}`}
+                <MediaVideo
+                  stream={localMediaStream}
+                  muted={true}
+                  mirror={true}
+                  className={`w-full h-full object-cover ${isCameraOff ? 'opacity-0' : 'opacity-100'}`}
                 />
+                {isCameraOff && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-white/60">
+                    <span className="text-[10px]">Cam Off</span>
+                  </div>
+                )}
                 <span className="absolute bottom-1.5 left-1.5 bg-black/60 px-1.5 py-0.5 rounded text-[9px] text-white/80">
                   You {isCameraOff ? '(Cam Off)' : ''}
                 </span>
               </div>
 
-              {/* Remote Thumb */}
+              {/* Remote User Video Feed (User B's remote video feed pinned when User A is sharing) */}
               {isConnected && (
                 <div className="w-24 sm:w-28 h-32 sm:h-36 rounded-xl overflow-hidden glass shadow-inner bg-black/60 relative flex items-center justify-center">
-                  <video
-                    ref={activeMode !== 'video-chat' && !isPartnerScreenSharing ? remoteVideoRef : null}
-                    autoPlay
-                    playsInline
-                    className={`w-full h-full object-cover ${isRemoteCameraOff ? 'opacity-0' : 'opacity-100'}`}
-                  />
-                  <span className="absolute bottom-1.5 left-1.5 bg-black/60 px-1.5 py-0.5 rounded text-[9px] text-white/80">
-                    {remoteUserName || 'Partner'} {isRemoteCameraOff ? '(Cam Off)' : ''}
-                  </span>
+                  {isScreenSharing ? (
+                    /* Sharer's view: User B's remote video feed stays pinned in the dock */
+                    <>
+                      <MediaVideo
+                        stream={remoteMediaStream}
+                        muted={false}
+                        className={`w-full h-full object-cover ${isRemoteCameraOff ? 'opacity-0' : 'opacity-100'}`}
+                      />
+                      {isRemoteCameraOff && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center text-white/60">
+                          <span className="text-[10px]">Cam Off</span>
+                        </div>
+                      )}
+                      <span className="absolute bottom-1.5 left-1.5 bg-black/60 px-1.5 py-0.5 rounded text-[9px] text-white/80">
+                        {remoteUserName || 'Partner'} {isRemoteCameraOff ? '(Cam Off)' : ''}
+                      </span>
+                    </>
+                  ) : isPartnerScreenSharing ? (
+                    /* Viewer's view: partner screen is on main stage; dock shows partner status */
+                    <div className="flex flex-col items-center justify-center text-center p-2 text-rose-300">
+                      <span className="text-xl mb-1">🖥️</span>
+                      <span className="text-[10px] font-medium text-white">{remoteUserName || 'Partner'}</span>
+                      <span className="text-[8px] text-rose-300/70">On Main Stage</span>
+                    </div>
+                  ) : (
+                    /* Other modes (watch-party): standard remote camera */
+                    <>
+                      <MediaVideo
+                        stream={remoteMediaStream}
+                        muted={false}
+                        className={`w-full h-full object-cover ${isRemoteCameraOff ? 'opacity-0' : 'opacity-100'}`}
+                      />
+                      {isRemoteCameraOff && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center text-white/60">
+                          <span className="text-[10px]">Cam Off</span>
+                        </div>
+                      )}
+                      <span className="absolute bottom-1.5 left-1.5 bg-black/60 px-1.5 py-0.5 rounded text-[9px] text-white/80">
+                        {remoteUserName || 'Partner'} {isRemoteCameraOff ? '(Cam Off)' : ''}
+                      </span>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -276,8 +362,8 @@ export default function Room({ socket, roomCode, userName, onLeaveRoom }) {
             isScreenSharing={isScreenSharing}
             onToggleMute={toggleMute}
             onToggleCamera={toggleCamera}
-            onStartScreenShare={startScreenShare}
-            onStopScreenShare={stopScreenShare}
+            onStartScreenShare={handleStartScreenShare}
+            onStopScreenShare={handleStopScreenShare}
             onLeaveRoom={handleLeave}
             onToggleChat={() => {
               setIsChatOpen(!isChatOpen);

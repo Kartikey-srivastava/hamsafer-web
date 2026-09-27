@@ -11,12 +11,19 @@ const iceServers = {
 export function useWebRTC({ socket, roomCode, localVideoRef, remoteVideoRef }) {
   const localStream = useRef(null);
   const remoteStream = useRef(null);
+  const screenStreamRef = useRef(null);
   const peerConnection = useRef(null);
   const originalVideoTrack = useRef(null);
+  const originalAudioTrack = useRef(null);
+  const audioContextRef = useRef(null);
   const iceCandidateQueue = useRef([]);
   const dataChannelRef = useRef(null);
   const receivingFileRef = useRef({ info: null, chunks: [], receivedBytes: 0 });
+  const onScreenShareEndedCallback = useRef(null);
 
+  const [localMediaStream, setLocalMediaStream] = useState(null);
+  const [remoteMediaStream, setRemoteMediaStream] = useState(null);
+  const [screenMediaStream, setScreenMediaStream] = useState(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -54,6 +61,7 @@ export function useWebRTC({ socket, roomCode, localVideoRef, remoteVideoRef }) {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       console.log('[WebRTC] Got media stream');
       localStream.current = stream;
+      setLocalMediaStream(stream);
       if (localVideoRef?.current) {
         localVideoRef.current.srcObject = stream;
       }
@@ -64,6 +72,7 @@ export function useWebRTC({ socket, roomCode, localVideoRef, remoteVideoRef }) {
       try {
         const videoStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
         localStream.current = videoStream;
+        setLocalMediaStream(videoStream);
         if (localVideoRef?.current) {
           localVideoRef.current.srcObject = videoStream;
         }
@@ -75,6 +84,7 @@ export function useWebRTC({ socket, roomCode, localVideoRef, remoteVideoRef }) {
       try {
         const audioStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
         localStream.current = audioStream;
+        setLocalMediaStream(audioStream);
         return audioStream;
       } catch (audioErr) {
         console.warn('[WebRTC] Audio-only also failed:', audioErr.name);
@@ -189,6 +199,7 @@ export function useWebRTC({ socket, roomCode, localVideoRef, remoteVideoRef }) {
       console.log('[WebRTC] Received remote track:', event.track.kind);
       if (event.streams && event.streams[0]) {
         remoteStream.current = event.streams[0];
+        setRemoteMediaStream(event.streams[0]);
         if (remoteVideoRef?.current) {
           remoteVideoRef.current.srcObject = event.streams[0];
         }
@@ -301,27 +312,103 @@ export function useWebRTC({ socket, roomCode, localVideoRef, remoteVideoRef }) {
     }
   };
 
-  const startScreenShare = async () => {
-    try {
-      const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-      const screenTrack = screenStream.getVideoTracks()[0];
-      
-      const videoTrack = localStream.current?.getVideoTracks()[0];
-      originalVideoTrack.current = videoTrack;
+  const startScreenShare = async (onEndedCallback) => {
+    if (onEndedCallback) {
+      onScreenShareEndedCallback.current = onEndedCallback;
+    }
 
-      if (peerConnection.current) {
-        const sender = peerConnection.current.getSenders().find(s => s.track?.kind === 'video');
-        if (sender) {
-          await sender.replaceTrack(screenTrack);
+    try {
+      let screenStream;
+      try {
+        screenStream = await navigator.mediaDevices.getDisplayMedia({
+          video: { cursor: "always" },
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            suppressLocalAudioPlayback: false
+          }
+        });
+      } catch (audioConstraintErr) {
+        console.warn('[WebRTC] getDisplayMedia audio constraints failed, trying basic audio:', audioConstraintErr);
+        try {
+          screenStream = await navigator.mediaDevices.getDisplayMedia({
+            video: { cursor: "always" },
+            audio: true
+          });
+        } catch (audioErr) {
+          console.warn('[WebRTC] getDisplayMedia audio failed, trying video only:', audioErr);
+          screenStream = await navigator.mediaDevices.getDisplayMedia({
+            video: { cursor: "always" }
+          });
+        }
+      }
+
+      const screenTracks = screenStream.getTracks();
+      const screenVideoTrack = screenStream.getVideoTracks()[0];
+      const screenAudioTracks = screenStream.getAudioTracks();
+      const screenAudioTrack = screenAudioTracks.length > 0 ? screenAudioTracks[0] : null;
+
+      screenStreamRef.current = screenStream;
+      setScreenMediaStream(screenStream);
+
+      // Save references to original camera and mic tracks
+      const currentVideoTrack = localStream.current?.getVideoTracks()[0];
+      originalVideoTrack.current = currentVideoTrack || null;
+
+      const currentAudioTrack = localStream.current?.getAudioTracks()[0];
+      originalAudioTrack.current = currentAudioTrack || null;
+
+      // 1. Send screen video track to WebRTC peer connection
+      if (peerConnection.current && screenVideoTrack) {
+        const videoSender = peerConnection.current.getSenders().find(s => s.track?.kind === 'video');
+        if (videoSender) {
+          await videoSender.replaceTrack(screenVideoTrack);
+        }
+      }
+
+      // 2. Send screen audio track to WebRTC peer connection
+      if (screenAudioTrack && peerConnection.current) {
+        const audioSender = peerConnection.current.getSenders().find(s => s.track?.kind === 'audio');
+        let combinedAudioTrack = screenAudioTrack;
+
+        // Use Web Audio API to mix microphone and screen audio so both voice and system/tab audio are transmitted
+        try {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (AudioContextClass && currentAudioTrack) {
+            const audioCtx = new AudioContextClass();
+            const dest = audioCtx.createMediaStreamDestination();
+
+            const micSource = audioCtx.createMediaStreamSource(new MediaStream([currentAudioTrack]));
+            micSource.connect(dest);
+
+            const screenSource = audioCtx.createMediaStreamSource(new MediaStream([screenAudioTrack]));
+            screenSource.connect(dest);
+
+            audioContextRef.current = audioCtx;
+            combinedAudioTrack = dest.stream.getAudioTracks()[0];
+          }
+        } catch (mixErr) {
+          console.warn('[WebRTC] Audio mixing fallback to direct screen audio:', mixErr);
+          combinedAudioTrack = screenAudioTrack;
+        }
+
+        if (audioSender) {
+          await audioSender.replaceTrack(combinedAudioTrack);
+        } else {
+          peerConnection.current.addTrack(combinedAudioTrack, screenStream);
         }
       }
 
       if (localVideoRef?.current) {
-        const newStream = new MediaStream([screenTrack, ...(localStream.current ? localStream.current.getAudioTracks() : [])]);
-        localVideoRef.current.srcObject = newStream;
+        localVideoRef.current.srcObject = screenStream;
       }
 
-      screenTrack.onended = () => {
+      // Dynamic onended event listener on screen video track
+      screenVideoTrack.onended = () => {
+        console.log('[WebRTC] screenStream.getVideoTracks()[0].onended fired');
+        // Automatically revert track senders back to local camera feed
+        // Reset layout mode back to standard Video Call focus
         stopScreenShare();
       };
 
@@ -329,37 +416,72 @@ export function useWebRTC({ socket, roomCode, localVideoRef, remoteVideoRef }) {
       if (socket && roomCode) {
         socket.emit('toggle-screen-share', { roomCode, isSharing: true });
       }
+
+      return true;
     } catch (err) {
       console.log('[WebRTC] Screen sharing cancelled or failed:', err);
+      return false;
     }
   };
 
   const stopScreenShare = async () => {
-    if (!originalVideoTrack.current) return;
-    
-    if (peerConnection.current) {
-      const sender = peerConnection.current.getSenders().find(s => s.track?.kind === 'video');
-      if (sender) {
-        await sender.replaceTrack(originalVideoTrack.current);
+    // 1. Revert video sender back to local camera feed
+    if (peerConnection.current && originalVideoTrack.current) {
+      const videoSender = peerConnection.current.getSenders().find(s => s.track?.kind === 'video');
+      if (videoSender) {
+        try {
+          await videoSender.replaceTrack(originalVideoTrack.current);
+        } catch (err) {
+          console.warn('[WebRTC] Error reverting video sender track:', err);
+        }
       }
     }
 
-    if (localVideoRef?.current && localStream.current) {
-      const currentStream = localVideoRef.current.srcObject;
-      if (currentStream && currentStream.getVideoTracks) {
-        currentStream.getVideoTracks().forEach(track => {
-          if (track !== originalVideoTrack.current) {
-            track.stop();
-          }
-        });
+    // 2. Revert audio sender back to local mic track
+    if (peerConnection.current && originalAudioTrack.current) {
+      const audioSender = peerConnection.current.getSenders().find(s => s.track?.kind === 'audio');
+      if (audioSender) {
+        try {
+          await audioSender.replaceTrack(originalAudioTrack.current);
+        } catch (err) {
+          console.warn('[WebRTC] Error reverting audio sender track:', err);
+        }
       }
+    }
+
+    // 3. Close audio mixing context if active
+    if (audioContextRef.current) {
+      try {
+        audioContextRef.current.close();
+      } catch (e) {}
+      audioContextRef.current = null;
+    }
+
+    // 4. Stop all screen stream tracks
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach(track => {
+        try { track.stop(); } catch (e) {}
+      });
+      screenStreamRef.current = null;
+    }
+    setScreenMediaStream(null);
+
+    // 5. Restore local video element if attached
+    if (localVideoRef?.current && localStream.current) {
       localVideoRef.current.srcObject = localStream.current;
     }
-    
+
     originalVideoTrack.current = null;
+    originalAudioTrack.current = null;
     setIsScreenSharing(false);
+
     if (socket && roomCode) {
       socket.emit('toggle-screen-share', { roomCode, isSharing: false });
+    }
+
+    // 6. Reset layout mode back to standard Video Call focus
+    if (onScreenShareEndedCallback.current) {
+      onScreenShareEndedCallback.current();
     }
   };
 
@@ -445,6 +567,16 @@ export function useWebRTC({ socket, roomCode, localVideoRef, remoteVideoRef }) {
     if (localStream.current) {
       localStream.current.getTracks().forEach(track => track.stop());
     }
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach(track => {
+        try { track.stop(); } catch (e) {}
+      });
+      screenStreamRef.current = null;
+    }
+    if (audioContextRef.current) {
+      try { audioContextRef.current.close(); } catch (e) {}
+      audioContextRef.current = null;
+    }
     if (dataChannelRef.current) {
       try { dataChannelRef.current.close(); } catch (e) {}
       dataChannelRef.current = null;
@@ -456,9 +588,13 @@ export function useWebRTC({ socket, roomCode, localVideoRef, remoteVideoRef }) {
     remoteStream.current = null;
     peerConnection.current = null;
     originalVideoTrack.current = null;
+    originalAudioTrack.current = null;
     iceCandidateQueue.current = [];
     setActivePeerConnection(null);
     setIsConnected(false);
+    setLocalMediaStream(null);
+    setRemoteMediaStream(null);
+    setScreenMediaStream(null);
   };
 
   useEffect(() => {
@@ -503,6 +639,7 @@ export function useWebRTC({ socket, roomCode, localVideoRef, remoteVideoRef }) {
     socket.on('user-left', () => {
       setIsConnected(false);
       remoteStream.current = null;
+      setRemoteMediaStream(null);
       if (remoteVideoRef?.current) {
         remoteVideoRef.current.srcObject = null;
       }
@@ -530,6 +667,10 @@ export function useWebRTC({ socket, roomCode, localVideoRef, remoteVideoRef }) {
   return {
     localStream,
     remoteStream,
+    screenStreamRef,
+    localMediaStream,
+    remoteMediaStream,
+    screenMediaStream,
     isMuted,
     isCameraOff,
     isConnected,
@@ -545,6 +686,7 @@ export function useWebRTC({ socket, roomCode, localVideoRef, remoteVideoRef }) {
     toggleCamera,
     startScreenShare,
     stopScreenShare,
+    setOnScreenShareEnded: (cb) => { onScreenShareEndedCallback.current = cb; },
     attachStreams,
     cleanup
   };

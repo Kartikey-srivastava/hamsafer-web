@@ -159,7 +159,9 @@ export default function Chat({
                       : 'glass border border-white/10 text-white/95 rounded-bl-sm'
                   }`}
                 >
-                  {msg.message}
+                  <span className="font-normal inline-block font-sans break-words leading-relaxed">
+                    {msg.message}
+                  </span>
                 </div>
                 <span className="text-[10px] text-white/35 mt-1 px-1">
                   {timeStr}
@@ -181,6 +183,20 @@ export default function Chat({
           </div>
         )}
         <div ref={messagesEndRef} />
+      </div>
+
+      {/* Quick Emoji Bar */}
+      <div className="px-3 py-1.5 flex items-center gap-1 overflow-x-auto border-t border-white/5 bg-white/[0.02]">
+        {['❤️', '😘', '🥰', '😍', '🌹', '✨', '🥺', '🫂', '🔥', '😂'].map((emo) => (
+          <button
+            key={emo}
+            type="button"
+            onClick={() => setInputText((prev) => prev + emo)}
+            className="p-1 px-1.5 rounded-lg hover:bg-white/10 transition-transform active:scale-90 text-sm"
+          >
+            <span className="font-normal inline-block font-emoji select-none">{emo}</span>
+          </button>
+        ))}
       </div>
 
       {/* Input Field */}
